@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Calendar, ChevronDown, CheckCircle2, Circle, Plus, Edit2, Trash2 } from "lucide-react";
+import { Calendar, ChevronDown, CheckCircle2, Circle, Plus, Edit2, Trash2, FileDown, FilePlus2 } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -11,17 +11,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "./ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "./ui/dialog";
+import { Label } from "./ui/label";
 
-// 分校列表
-const campuses = [
-  { id: "soar", name: "翱翔校", completed: true },
-  { id: "wings", name: "展翅校", completed: true },
-  { id: "dawn", name: "晨光校", completed: true },
-  { id: "aurora", name: "極光校", completed: false },
-  { id: "forest", name: "森耀校", completed: false },
-  { id: "cloud", name: "騰雲校", completed: false },
-  { id: "wisdom", name: "知行校", completed: false },
-];
 
 // 支出項目資料型別
 interface ExpenseItem {
@@ -31,6 +30,8 @@ interface ExpenseItem {
   amount: string;
   note: string;
   paymentDate?: string;
+  completed: boolean; // 完成狀態
+  status: "已完成" | "未完成";
 }
 
 interface ExpenseCategory {
@@ -39,75 +40,312 @@ interface ExpenseCategory {
   items: ExpenseItem[];
 }
 
-// 支出項目類別初始資料
-const initialExpenseCategories: ExpenseCategory[] = [
+// 分校資料型別
+interface CampusData {
+  id: string;
+  name: string;
+  completed: boolean;
+}
+
+// 月份資料型別
+interface MonthData {
+  campuses: {
+    [campusId: string]: {
+      categories: ExpenseCategory[];
+      kpi: {
+        totalItems: number;
+        completedItems: number;
+        pendingItems: number;
+        completedAmount: number;
+      };
+    };
+  };
+}
+
+// 固定支出主檔模板項目（用於生成新月份）
+interface TemplateItem {
+  name: string;
+  defaultDay: number; // 每月固定繳費日期（日）
+  defaultAmount?: string; // 預設金額
+  note: string;
+}
+
+interface ExpenseTemplate {
+  category: string;
+  items: TemplateItem[];
+}
+
+// 固定支出主檔模板（用於生成新月份）
+const expenseTemplates: ExpenseTemplate[] = [
   {
     category: "環境",
-    color: "bg-blue-50",
-    items: [{ id: "env-1", name: "芳香劑", deadline: "115/5/10", amount: "", note: "每月20號繳納後上ERP" }],
+    items: [
+      { name: "芳香劑", defaultDay: 10, note: "每月20號繳納後上ERP" },
+    ],
   },
   {
     category: "水電費",
-    color: "bg-blue-50",
     items: [
-      { id: "utility-1", name: "1樓水費", deadline: "115/5/15", amount: "1,200", note: "" },
-      { id: "utility-2", name: "2樓水費", deadline: "115/5/15", amount: "1,500", note: "" },
-      { id: "utility-3", name: "3樓水費", deadline: "115/5/15", amount: "1,800", note: "" },
-      { id: "utility-4", name: "樹屋水費", deadline: "115/5/15", amount: "", note: "" },
-      { id: "utility-5", name: "1樓電費", deadline: "115/5/20", amount: "8,500", note: "" },
-      { id: "utility-6", name: "2樓電費", deadline: "115/5/20", amount: "9,200", note: "" },
-      { id: "utility-7", name: "3樓電費", deadline: "115/5/20", amount: "7,800", note: "" },
+      { name: "1樓水費", defaultDay: 15, defaultAmount: "1,200", note: "" },
+      { name: "2樓水費", defaultDay: 15, defaultAmount: "1,500", note: "" },
+      { name: "3樓水費", defaultDay: 15, defaultAmount: "1,800", note: "" },
+      { name: "樹屋水費", defaultDay: 15, note: "" },
+      { name: "1樓電費", defaultDay: 20, defaultAmount: "8,500", note: "" },
+      { name: "2樓電費", defaultDay: 20, defaultAmount: "9,200", note: "" },
+      { name: "3樓電費", defaultDay: 20, defaultAmount: "7,800", note: "" },
     ],
   },
   {
     category: "電信費",
-    color: "bg-blue-50",
     items: [
-      { id: "tel-1", name: "中華電信網路費", deadline: "115/5/5", amount: "2,500", note: "3/31上ERP（繳費期限4/7）" },
-      { id: "tel-2", name: "中華電信電話費", deadline: "115/5/5", amount: "1,200", note: "" },
-      { id: "tel-3", name: "毅通網路電話費", deadline: "115/5/8", amount: "3,800", note: "10-12月、1-3月費用；4/14上ERP" },
+      { name: "中華電信網路費", defaultDay: 5, defaultAmount: "2,500", note: "3/31上ERP（繳費期限4/7）" },
+      { name: "中華電信電話費", defaultDay: 5, defaultAmount: "1,200", note: "" },
+      { name: "毅通網路電話費", defaultDay: 8, defaultAmount: "3,800", note: "10-12月、1-3月費用；4/14上ERP" },
     ],
   },
   {
     category: "影印費",
-    color: "bg-blue-50",
-    items: [{ id: "copy-1", name: "影印機費用", deadline: "115/5/25", amount: "4,500", note: "點擊新增..." }],
+    items: [
+      { name: "影印機費用", defaultDay: 25, defaultAmount: "4,500", note: "點擊新增..." },
+    ],
   },
   {
     category: "房租",
-    color: "bg-blue-50",
     items: [
-      { id: "rent-1", name: "每月房租（265號）", deadline: "115/5/1", amount: "70,000", note: "最後繳費1/30，繳到12月；每月1..." },
-      { id: "rent-2", name: "每月樹屋房租（235號）", deadline: "115/5/1", amount: "15,000", note: "區間12/03-01/27；單數月收" },
+      { name: "每月房租（265號）", defaultDay: 1, defaultAmount: "70,000", note: "最後繳費1/30，繳到12月；每月1..." },
+      { name: "每月樹屋房租（235號）", defaultDay: 1, defaultAmount: "15,000", note: "區間12/03-01/27；單數月收" },
     ],
   },
   {
     category: "勞工相關",
-    color: "bg-blue-50",
     items: [
-      { id: "labor-1", name: "勞保費", deadline: "115/5/30", amount: "28,500", note: "區間10/03-12/02（已繳）" },
-      { id: "labor-2", name: "健保費", deadline: "115/5/30", amount: "18,200", note: "" },
-      { id: "labor-3", name: "勞退費", deadline: "115/5/30", amount: "12,800", note: "已繳2025/8-2026/7" },
+      { name: "勞保費", defaultDay: 30, defaultAmount: "28,500", note: "區間10/03-12/02（已繳）" },
+      { name: "健保費", defaultDay: 30, defaultAmount: "18,200", note: "" },
+      { name: "勞退費", defaultDay: 30, defaultAmount: "12,800", note: "已繳2025/8-2026/7" },
     ],
   },
 ];
 
-// 總覽模式的分校數據
-const overviewData = [
-  { campus: "翱翔校", total: 22, completed: 18, pending: 4, rate: 82, amount: 85000 },
-  { campus: "展翅校", total: 22, completed: 19, pending: 3, rate: 86, amount: 92000 },
-  { campus: "晨光校", total: 22, completed: 20, pending: 2, rate: 91, amount: 88000 },
-  { campus: "極光校", total: 22, completed: 3, pending: 19, rate: 14, amount: 45000 },
-  { campus: "森耀校", total: 22, completed: 4, pending: 18, rate: 18, amount: 52000 },
-  { campus: "騰雲校", total: 22, completed: 2, pending: 20, rate: 9, amount: 38000 },
-  { campus: "知行校", total: 22, completed: 5, pending: 17, rate: 23, amount: 58000 },
+// 生成單一分校的初始資料
+const generateCampusData = (year: string, month: string, campusIndex: number) => {
+  const categories: ExpenseCategory[] = expenseTemplates.map((template, catIndex) => ({
+    category: template.category,
+    color: "bg-blue-50",
+    items: template.items.map((templateItem, itemIndex) => {
+      // 前3個分校設為部分完成，後4個分校設為大部分未完成
+      const isCompleted = campusIndex < 3 ? Math.random() > 0.3 : Math.random() > 0.85;
+      return {
+        id: `${year}-${month}-campus${campusIndex}-${template.category}-${itemIndex}`,
+        name: templateItem.name,
+        deadline: `${year}/${month}/${templateItem.defaultDay}`,
+        amount: isCompleted ? (templateItem.defaultAmount || "") : "",
+        note: templateItem.note,
+        paymentDate: isCompleted ? `${year}/${month}/${templateItem.defaultDay + 2}` : "",
+        completed: isCompleted,
+        status: isCompleted ? "已完成" : "未完成",
+      };
+    }),
+  }));
+
+  // 計算 KPI
+  const allItems = categories.flatMap((cat) => cat.items);
+  const completedItems = allItems.filter((item) => item.completed).length;
+  const pendingItems = allItems.length - completedItems;
+  const completedAmount = allItems
+    .filter((item) => item.completed && item.amount)
+    .reduce((sum, item) => sum + parseFloat(item.amount.replace(/,/g, "") || "0"), 0);
+
+  return {
+    categories,
+    kpi: {
+      totalItems: allItems.length,
+      completedItems,
+      pendingItems,
+      completedAmount: Math.round(completedAmount),
+    },
+  };
+};
+
+// 生成月份資料
+const generateMonthData = (year: string, month: string): MonthData => {
+  const campuses: MonthData["campuses"] = {};
+  const campusList = [
+    "soar",
+    "wings",
+    "dawn",
+    "aurora",
+    "forest",
+    "cloud",
+    "wisdom",
+  ];
+
+  campusList.forEach((campusId, index) => {
+    campuses[campusId] = generateCampusData(year, month, index);
+  });
+
+  return { campuses };
+};
+
+// 月份資料結構
+const monthlyData: { [key: string]: MonthData } = {
+  "115年3月": generateMonthData("115", "3"),
+  "115年4月": generateMonthData("115", "4"),
+  "115年5月": generateMonthData("115", "5"),
+  "115年6月": generateMonthData("115", "6"),
+};
+
+// 分校列表定義
+const campusList = [
+  { id: "soar", name: "翱翔校" },
+  { id: "wings", name: "展翅校" },
+  { id: "dawn", name: "晨光校" },
+  { id: "aurora", name: "極光校" },
+  { id: "forest", name: "森耀校" },
+  { id: "cloud", name: "騰雲校" },
+  { id: "wisdom", name: "知行校" },
 ];
+
 
 export function ExpenseManagementSystem() {
   const [selectedCampus, setSelectedCampus] = useState("soar");
   const [viewMode, setViewMode] = useState<"detail" | "overview">("detail");
-  const [selectedMonth, setSelectedMonth] = useState("115/5");
-  const [expenseCategories, setExpenseCategories] = useState<ExpenseCategory[]>(initialExpenseCategories);
+  const [selectedMonth, setSelectedMonth] = useState("115年6月");
+  const [allMonthlyData, setAllMonthlyData] = useState(monthlyData);
+  const [showNewMonthDialog, setShowNewMonthDialog] = useState(false);
+  const [newMonthYear, setNewMonthYear] = useState("115");
+  const [newMonthMonth, setNewMonthMonth] = useState("7");
+
+  // 獲取可用月份列表
+  const availableMonths = Object.keys(allMonthlyData).sort();
+
+  // 獲取當前月份資料
+  const currentMonthData = allMonthlyData[selectedMonth];
+  const currentCampusData = currentMonthData?.campuses[selectedCampus];
+
+  // 計算分校完成狀態（用於紅點顯示）
+  const getCampusCompleted = (campusId: string) => {
+    if (!currentMonthData) return false;
+    const campusData = currentMonthData.campuses[campusId];
+    return campusData.kpi.pendingItems === 0;
+  };
+
+  // 計算全校區統計
+  const calculateGlobalKPI = () => {
+    if (!currentMonthData) return { totalPending: 0, totalCompleted: 0, totalAmount: 0, completedCampuses: 0 };
+
+    let totalPending = 0;
+    let totalCompleted = 0;
+    let totalAmount = 0;
+    let completedCampuses = 0;
+
+    Object.values(currentMonthData.campuses).forEach((campus) => {
+      totalPending += campus.kpi.pendingItems;
+      totalCompleted += campus.kpi.completedItems;
+      totalAmount += campus.kpi.completedAmount;
+      if (campus.kpi.pendingItems === 0) completedCampuses++;
+    });
+
+    return { totalPending, totalCompleted, totalAmount, completedCampuses };
+  };
+
+  const globalKPI = calculateGlobalKPI();
+
+  // 生成新月份資料
+  const generateNewMonth = () => {
+    const newMonth = `${newMonthYear}年${newMonthMonth}月`;
+
+    // 檢查月份是否已存在
+    if (availableMonths.includes(newMonth)) {
+      alert("此月份已存在！");
+      return;
+    }
+
+    // 生成新月份資料
+    const newData = generateMonthData(newMonthYear, newMonthMonth);
+    setAllMonthlyData({ ...allMonthlyData, [newMonth]: newData });
+    setSelectedMonth(newMonth);
+    setShowNewMonthDialog(false);
+    alert(`已成功生成 ${newMonth} 的固定支出清單！`);
+  };
+
+  // 匯出本月資料為 CSV
+  const exportToCSV = () => {
+    if (!currentCampusData) {
+      alert("目前沒有可匯出的資料");
+      return;
+    }
+
+    // CSV 標題列
+    const headers = ["月份", "分校", "類別", "項目", "狀態", "截止日", "繳費日期", "金額", "備註"];
+
+    // 獲取當前分校名稱
+    const currentCampusName = campusList.find((c) => c.id === selectedCampus)?.name || "";
+
+    // 組裝資料列
+    const rows = currentCampusData.categories.flatMap((category) =>
+      category.items.map((item) => [
+        selectedMonth,
+        currentCampusName,
+        category.category,
+        item.name,
+        item.status,
+        item.deadline,
+        item.paymentDate || "",
+        item.amount,
+        item.note,
+      ])
+    );
+
+    // 組合成 CSV 內容
+    const csvContent = [
+      headers.join(","),
+      ...rows.map((row) => row.map((cell) => `"${cell}"`).join(",")),
+    ].join("\n");
+
+    // 建立下載連結
+    const blob = new Blob(["﻿" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `支出資料_${selectedMonth}_${currentCampusName}.csv`);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 更新項目完成狀態
+  const toggleItemCompleted = (categoryIndex: number, itemId: string) => {
+    if (!currentMonthData) return;
+
+    const updatedMonthData = { ...allMonthlyData };
+    const categories = updatedMonthData[selectedMonth].campuses[selectedCampus].categories;
+    const category = categories[categoryIndex];
+    const itemIndex = category.items.findIndex((item) => item.id === itemId);
+
+    if (itemIndex !== -1) {
+      const item = category.items[itemIndex];
+      item.completed = !item.completed;
+      item.status = item.completed ? "已完成" : "未完成";
+
+      // 重新計算 KPI
+      const allItems = categories.flatMap((cat) => cat.items);
+      const completedItems = allItems.filter((item) => item.completed).length;
+      const pendingItems = allItems.length - completedItems;
+      const completedAmount = allItems
+        .filter((item) => item.completed && item.amount)
+        .reduce((sum, item) => sum + parseFloat(item.amount.replace(/,/g, "") || "0"), 0);
+
+      updatedMonthData[selectedMonth].campuses[selectedCampus].kpi = {
+        totalItems: allItems.length,
+        completedItems,
+        pendingItems,
+        completedAmount: Math.round(completedAmount),
+      };
+
+      setAllMonthlyData(updatedMonthData);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -122,16 +360,39 @@ export function ExpenseManagementSystem() {
               <p className="text-sm text-gray-500 mt-1">七校區・每月繳費追蹤系統</p>
             </div>
             <div className="flex items-center gap-4">
+              {/* 生成新月份按鈕 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowNewMonthDialog(true)}
+                className="text-sm gap-2"
+              >
+                <FilePlus2 className="w-4 h-4" />
+                生成新月份
+              </Button>
+
+              {/* 匯出本月資料按鈕 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportToCSV}
+                className="text-sm gap-2"
+              >
+                <FileDown className="w-4 h-4" />
+                匯出本月資料
+              </Button>
+
               {/* 月份選擇 */}
               <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                 <SelectTrigger className="w-[140px]">
-                  <SelectValue />
+                  <SelectValue>{selectedMonth}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="115/3">115年3月</SelectItem>
-                  <SelectItem value="115/4">115年4月</SelectItem>
-                  <SelectItem value="115/5">115年5月</SelectItem>
-                  <SelectItem value="115/6">115年6月</SelectItem>
+                  {availableMonths.map((month) => (
+                    <SelectItem key={month} value={month}>
+                      {month}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -158,27 +419,30 @@ export function ExpenseManagementSystem() {
           </div>
 
           {/* 分校切換 Tabs */}
-          {viewMode === "detail" && (
+          {viewMode === "detail" && currentMonthData && (
             <div className="flex gap-2 overflow-x-auto pb-2">
-              {campuses.map((campus) => (
-                <button
-                  key={campus.id}
-                  onClick={() => setSelectedCampus(campus.id)}
-                  className={`
-                    relative px-5 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all
-                    ${
-                      selectedCampus === campus.id
-                        ? "bg-gray-900 text-white shadow-sm"
-                        : "bg-white text-gray-600 border border-gray-300 hover:border-gray-400"
-                    }
-                  `}
-                >
-                  {campus.name}
-                  {!campus.completed && selectedCampus !== campus.id && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full" />
-                  )}
-                </button>
-              ))}
+              {campusList.map((campus) => {
+                const isCompleted = getCampusCompleted(campus.id);
+                return (
+                  <button
+                    key={campus.id}
+                    onClick={() => setSelectedCampus(campus.id)}
+                    className={`
+                      relative px-5 py-2.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all
+                      ${
+                        selectedCampus === campus.id
+                          ? "bg-gray-900 text-white shadow-sm"
+                          : "bg-white text-gray-600 border border-gray-300 hover:border-gray-400"
+                      }
+                    `}
+                  >
+                    {campus.name}
+                    {!isCompleted && selectedCampus !== campus.id && (
+                      <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-red-500 rounded-full" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
@@ -186,26 +450,123 @@ export function ExpenseManagementSystem() {
 
       {/* Content */}
       <div className="max-w-[1440px] mx-auto px-8 py-8">
-        {viewMode === "detail" ? (
+        {!currentMonthData ? (
+          <Card className="p-12 bg-white border border-gray-200 text-center">
+            <div className="max-w-md mx-auto">
+              <div className="text-gray-400 mb-4">
+                <Calendar className="w-16 h-16 mx-auto" />
+              </div>
+              <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                此月份尚未建立固定支出資料
+              </h3>
+              <p className="text-gray-600 mb-6">
+                請點擊下方按鈕生成 {selectedMonth} 的固定支出清單
+              </p>
+              <Button
+                onClick={() => setShowNewMonthDialog(true)}
+                className="gap-2"
+              >
+                <FilePlus2 className="w-4 h-4" />
+                生成此月份資料
+              </Button>
+            </div>
+          </Card>
+        ) : viewMode === "detail" ? (
           <DetailView
-            expenseCategories={expenseCategories}
-            setExpenseCategories={setExpenseCategories}
+            categories={currentCampusData?.categories || []}
+            kpi={currentCampusData?.kpi}
+            toggleItemCompleted={toggleItemCompleted}
+            setAllMonthlyData={setAllMonthlyData}
+            allMonthlyData={allMonthlyData}
+            selectedMonth={selectedMonth}
+            selectedCampus={selectedCampus}
           />
         ) : (
-          <OverviewView />
+          <OverviewView
+            monthData={currentMonthData}
+            campusList={campusList}
+          />
         )}
       </div>
+
+      {/* 生成新月份對話框 */}
+      <Dialog open={showNewMonthDialog} onOpenChange={setShowNewMonthDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>生成新月份固定支出</DialogTitle>
+            <DialogDescription>
+              請選擇要生成的月份，系統將根據固定支出主檔自動建立該月份的支出清單。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>年份</Label>
+                <Select value={newMonthYear} onValueChange={setNewMonthYear}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="114">114年</SelectItem>
+                    <SelectItem value="115">115年</SelectItem>
+                    <SelectItem value="116">116年</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>月份</Label>
+                <Select value={newMonthMonth} onValueChange={setNewMonthMonth}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map((month) => (
+                      <SelectItem key={month} value={String(month)}>
+                        {month}月
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-sm text-gray-700">
+              <p className="font-medium mb-1">將自動生成：</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>所有分校的固定支出項目</li>
+                <li>根據主檔帶入截止日、金額、備註</li>
+                <li>狀態預設為「未完成」</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowNewMonthDialog(false)}>
+              取消
+            </Button>
+            <Button onClick={generateNewMonth}>確認生成</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
 
 // 明細模式
 function DetailView({
-  expenseCategories,
-  setExpenseCategories,
+  categories,
+  kpi,
+  toggleItemCompleted,
+  setAllMonthlyData,
+  allMonthlyData,
+  selectedMonth,
+  selectedCampus,
 }: {
-  expenseCategories: ExpenseCategory[];
-  setExpenseCategories: React.Dispatch<React.SetStateAction<ExpenseCategory[]>>;
+  categories: ExpenseCategory[];
+  kpi: any;
+  toggleItemCompleted: (categoryIndex: number, itemId: string) => void;
+  setAllMonthlyData: React.Dispatch<React.SetStateAction<{ [key: string]: MonthData }>>;
+  allMonthlyData: { [key: string]: MonthData };
+  selectedMonth: string;
+  selectedCampus: string;
 }) {
   const [editingItem, setEditingItem] = useState<{ categoryIndex: number; itemId: string } | null>(null);
   const [editForm, setEditForm] = useState<ExpenseItem | null>(null);
@@ -219,48 +580,49 @@ function DetailView({
       amount: "",
       note: "",
       paymentDate: "",
+      completed: false,
+      status: "未完成",
     };
 
-    const updatedCategories = [...expenseCategories];
-    updatedCategories[categoryIndex].items.push(newItem);
-    setExpenseCategories(updatedCategories);
+    const updatedData = { ...allMonthlyData };
+    updatedData[selectedMonth].campuses[selectedCampus].categories[categoryIndex].items.push(newItem);
+    setAllMonthlyData(updatedData);
     setEditingItem({ categoryIndex, itemId: newItem.id });
     setEditForm(newItem);
   };
 
   // 刪除項目
   const deleteItem = (categoryIndex: number, itemId: string) => {
-    const updatedCategories = [...expenseCategories];
-    updatedCategories[categoryIndex].items = updatedCategories[categoryIndex].items.filter(
-      (item) => item.id !== itemId
-    );
-    setExpenseCategories(updatedCategories);
+    const updatedData = { ...allMonthlyData };
+    const category = updatedData[selectedMonth].campuses[selectedCampus].categories[categoryIndex];
+    category.items = category.items.filter((item) => item.id !== itemId);
+    setAllMonthlyData(updatedData);
   };
 
   // 開始編輯
   const startEdit = (categoryIndex: number, item: ExpenseItem) => {
     setEditingItem({ categoryIndex, itemId: item.id });
-    setEditForm({ ...item, paymentDate: item.paymentDate || "" });
+    setEditForm({ ...item });
   };
 
   // 儲存編輯
   const saveEdit = (categoryIndex: number, itemId: string) => {
     if (!editForm) return;
 
-    const updatedCategories = [...expenseCategories];
-    const itemIndex = updatedCategories[categoryIndex].items.findIndex((item) => item.id === itemId);
+    const updatedData = { ...allMonthlyData };
+    const items = updatedData[selectedMonth].campuses[selectedCampus].categories[categoryIndex].items;
+    const itemIndex = items.findIndex((item) => item.id === itemId);
     if (itemIndex !== -1) {
-      updatedCategories[categoryIndex].items[itemIndex] = editForm;
+      items[itemIndex] = editForm;
     }
-    setExpenseCategories(updatedCategories);
+    setAllMonthlyData(updatedData);
     setEditingItem(null);
     setEditForm(null);
   };
 
   // 取消編輯
   const cancelEdit = (categoryIndex: number, itemId: string) => {
-    // 如果是新增的項目（名稱為空），取消時刪除
-    const item = expenseCategories[categoryIndex].items.find((i) => i.id === itemId);
+    const item = categories[categoryIndex].items.find((i) => i.id === itemId);
     if (item && !item.name) {
       deleteItem(categoryIndex, itemId);
     }
@@ -275,14 +637,15 @@ function DetailView({
     field: keyof ExpenseItem,
     value: string
   ) => {
-    const updatedCategories = [...expenseCategories];
-    const itemIndex = updatedCategories[categoryIndex].items.findIndex((item) => item.id === itemId);
+    const updatedData = { ...allMonthlyData };
+    const items = updatedData[selectedMonth].campuses[selectedCampus].categories[categoryIndex].items;
+    const itemIndex = items.findIndex((item) => item.id === itemId);
     if (itemIndex !== -1) {
-      updatedCategories[categoryIndex].items[itemIndex] = {
-        ...updatedCategories[categoryIndex].items[itemIndex],
+      items[itemIndex] = {
+        ...items[itemIndex],
         [field]: value,
       };
-      setExpenseCategories(updatedCategories);
+      setAllMonthlyData(updatedData);
     }
   };
 
@@ -295,22 +658,28 @@ function DetailView({
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-6 mb-8">
         <Card className="p-6 bg-white border border-gray-200">
-          <div className="text-sm text-gray-600 mb-2">全校區未繳</div>
-          <div className="text-3xl font-semibold text-gray-900">65項</div>
+          <div className="text-sm text-gray-600 mb-2">本分校未完成</div>
+          <div className="text-3xl font-semibold text-gray-900">{kpi?.pendingItems || 0}項</div>
         </Card>
         <Card className="p-6 bg-white border border-gray-200">
-          <div className="text-sm text-gray-600 mb-2">已繳金額合計</div>
-          <div className="text-3xl font-semibold text-gray-900">$576,217</div>
-          <div className="text-xs text-gray-500 mt-1">本月已輸入金額</div>
+          <div className="text-sm text-gray-600 mb-2">已完成金額</div>
+          <div className="text-3xl font-semibold text-gray-900">
+            ${(kpi?.completedAmount || 0).toLocaleString()}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">本分校已輸入金額</div>
         </Card>
         <Card className="p-6 bg-white border border-gray-200">
           <div className="text-sm text-gray-600 mb-2">完成率</div>
-          <div className="text-3xl font-semibold text-gray-900">17%</div>
+          <div className="text-3xl font-semibold text-gray-900">
+            {kpi?.totalItems ? Math.round((kpi.completedItems / kpi.totalItems) * 100) : 0}%
+          </div>
         </Card>
         <Card className="p-6 bg-white border border-gray-200">
-          <div className="text-sm text-gray-600 mb-2">已繳分校</div>
-          <div className="text-3xl font-semibold text-gray-900">3/7</div>
-          <div className="text-xs text-gray-500 mt-1">已繳 $85,000</div>
+          <div className="text-sm text-gray-600 mb-2">已完成/總項目</div>
+          <div className="text-3xl font-semibold text-gray-900">
+            {kpi?.completedItems || 0}/{kpi?.totalItems || 0}
+          </div>
+          <div className="text-xs text-gray-500 mt-1">本分校統計</div>
         </Card>
       </div>
 
@@ -347,7 +716,7 @@ function DetailView({
               </tr>
             </thead>
             <tbody>
-              {expenseCategories.map((category, categoryIndex) => (
+              {categories.map((category, categoryIndex) => (
                 <React.Fragment key={`category-${categoryIndex}`}>
                   {/* Category Header */}
                   <tr className={category.color}>
@@ -396,11 +765,17 @@ function DetailView({
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          {item.amount ? (
-                            <CheckCircle2 className="w-5 h-5 text-green-600" />
-                          ) : (
-                            <Circle className="w-5 h-5 text-gray-400" />
-                          )}
+                          <button
+                            onClick={() => toggleItemCompleted(categoryIndex, item.id)}
+                            className="hover:scale-110 transition-transform"
+                            title={item.completed ? "點擊標記為未完成" : "點擊標記為已完成"}
+                          >
+                            {item.completed ? (
+                              <CheckCircle2 className="w-5 h-5 text-green-600" />
+                            ) : (
+                              <Circle className="w-5 h-5 text-gray-400" />
+                            )}
+                          </button>
                         </td>
                         <td className="px-6 py-4">
                           {editing ? (
@@ -534,7 +909,26 @@ function DetailView({
 }
 
 // 總覽模式
-function OverviewView() {
+function OverviewView({
+  monthData,
+  campusList,
+}: {
+  monthData: MonthData;
+  campusList: Array<{ id: string; name: string }>;
+}) {
+  // 計算總計
+  const totalStats = {
+    totalItems: 0,
+    completedItems: 0,
+    totalAmount: 0,
+  };
+
+  Object.values(monthData.campuses).forEach((campus) => {
+    totalStats.totalItems += campus.kpi.totalItems;
+    totalStats.completedItems += campus.kpi.completedItems;
+    totalStats.totalAmount += campus.kpi.completedAmount;
+  });
+
   return (
     <Card className="bg-white border border-gray-200 overflow-hidden">
       <div className="overflow-x-auto">
@@ -557,52 +951,60 @@ function OverviewView() {
                 完成率
               </th>
               <th className="px-6 py-4 text-left text-sm font-semibold text-gray-700">
-                已繳金額
+                已完成金額
               </th>
             </tr>
           </thead>
           <tbody>
-            {overviewData.map((data, index) => (
-              <tr
-                key={index}
-                className="border-b border-gray-100 hover:bg-gray-50"
-              >
-                <td className="px-6 py-5">
-                  <div className="text-sm font-medium text-gray-900">
-                    {data.campus}
-                  </div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="text-sm text-gray-900">{data.total}</div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="text-sm text-green-600 font-medium">
-                    {data.completed}
-                  </div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="text-sm text-gray-900">{data.pending}</div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
-                      <div
-                        className="bg-blue-600 h-full rounded-full transition-all"
-                        style={{ width: `${data.rate}%` }}
-                      />
+            {campusList.map((campus) => {
+              const campusData = monthData.campuses[campus.id];
+              const rate =
+                campusData.kpi.totalItems > 0
+                  ? Math.round((campusData.kpi.completedItems / campusData.kpi.totalItems) * 100)
+                  : 0;
+
+              return (
+                <tr
+                  key={campus.id}
+                  className="border-b border-gray-100 hover:bg-gray-50"
+                >
+                  <td className="px-6 py-5">
+                    <div className="text-sm font-medium text-gray-900">
+                      {campus.name}
                     </div>
-                    <span className="text-sm font-medium text-gray-900 min-w-[45px]">
-                      {data.rate}%
-                    </span>
-                  </div>
-                </td>
-                <td className="px-6 py-5">
-                  <div className="text-sm font-medium text-gray-900">
-                    ${data.amount.toLocaleString()}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="text-sm text-gray-900">{campusData.kpi.totalItems}</div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="text-sm text-green-600 font-medium">
+                      {campusData.kpi.completedItems}
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="text-sm text-gray-900">{campusData.kpi.pendingItems}</div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div
+                          className="bg-blue-600 h-full rounded-full transition-all"
+                          style={{ width: `${rate}%` }}
+                        />
+                      </div>
+                      <span className="text-sm font-medium text-gray-900 min-w-[45px]">
+                        {rate}%
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-5">
+                    <div className="text-sm font-medium text-gray-900">
+                      ${campusData.kpi.completedAmount.toLocaleString()}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
@@ -614,12 +1016,14 @@ function OverviewView() {
           <div className="flex gap-12">
             <div className="text-right">
               <div className="text-xs text-gray-500">已完成</div>
-              <div className="text-lg font-semibold text-gray-900">71/154</div>
+              <div className="text-lg font-semibold text-gray-900">
+                {totalStats.completedItems}/{totalStats.totalItems}
+              </div>
             </div>
             <div className="text-right">
-              <div className="text-xs text-gray-500">總已繳金額</div>
+              <div className="text-xs text-gray-500">總已完成金額</div>
               <div className="text-lg font-semibold text-gray-900">
-                $458,000
+                ${totalStats.totalAmount.toLocaleString()}
               </div>
             </div>
           </div>
