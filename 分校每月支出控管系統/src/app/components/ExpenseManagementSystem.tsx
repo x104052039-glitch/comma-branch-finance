@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { Calendar, ChevronDown, CheckCircle2, Circle, Plus, Edit2, Trash2, FileDown, FilePlus2 } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { Calendar, ChevronDown, CheckCircle2, Circle, Plus, Edit2, Trash2, FileDown, FilePlus2, RotateCcw } from "lucide-react";
 import { Card } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -187,11 +187,68 @@ const generateMonthData = (year: string, month: string): MonthData => {
 };
 
 // 月份資料結構
-const monthlyData: { [key: string]: MonthData } = {
+const defaultMonthlyData: { [key: string]: MonthData } = {
   "115年3月": generateMonthData("115", "3"),
   "115年4月": generateMonthData("115", "4"),
   "115年5月": generateMonthData("115", "5"),
   "115年6月": generateMonthData("115", "6"),
+};
+
+// localStorage 相關函數
+const STORAGE_KEY = "branchExpenseData";
+const STORAGE_SELECTED_MONTH_KEY = "selectedMonth";
+const STORAGE_SELECTED_CAMPUS_KEY = "selectedCampus";
+
+// 從 localStorage 讀取資料
+const loadFromLocalStorage = (): {
+  monthlyData: { [key: string]: MonthData };
+  selectedMonth: string;
+  selectedCampus: string;
+} => {
+  try {
+    const savedData = localStorage.getItem(STORAGE_KEY);
+    const savedMonth = localStorage.getItem(STORAGE_SELECTED_MONTH_KEY);
+    const savedCampus = localStorage.getItem(STORAGE_SELECTED_CAMPUS_KEY);
+
+    return {
+      monthlyData: savedData ? JSON.parse(savedData) : defaultMonthlyData,
+      selectedMonth: savedMonth || "115年6月",
+      selectedCampus: savedCampus || "soar",
+    };
+  } catch (error) {
+    console.error("Failed to load data from localStorage:", error);
+    return {
+      monthlyData: defaultMonthlyData,
+      selectedMonth: "115年6月",
+      selectedCampus: "soar",
+    };
+  }
+};
+
+// 儲存到 localStorage
+const saveToLocalStorage = (
+  monthlyData: { [key: string]: MonthData },
+  selectedMonth: string,
+  selectedCampus: string
+) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(monthlyData));
+    localStorage.setItem(STORAGE_SELECTED_MONTH_KEY, selectedMonth);
+    localStorage.setItem(STORAGE_SELECTED_CAMPUS_KEY, selectedCampus);
+  } catch (error) {
+    console.error("Failed to save data to localStorage:", error);
+  }
+};
+
+// 清除 localStorage
+const clearLocalStorage = () => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(STORAGE_SELECTED_MONTH_KEY);
+    localStorage.removeItem(STORAGE_SELECTED_CAMPUS_KEY);
+  } catch (error) {
+    console.error("Failed to clear localStorage:", error);
+  }
 };
 
 // 分校列表定義
@@ -207,13 +264,22 @@ const campusList = [
 
 
 export function ExpenseManagementSystem() {
-  const [selectedCampus, setSelectedCampus] = useState("soar");
+  // 從 localStorage 載入資料
+  const initialData = loadFromLocalStorage();
+
+  const [selectedCampus, setSelectedCampus] = useState(initialData.selectedCampus);
   const [viewMode, setViewMode] = useState<"detail" | "overview">("detail");
-  const [selectedMonth, setSelectedMonth] = useState("115年6月");
-  const [allMonthlyData, setAllMonthlyData] = useState(monthlyData);
+  const [selectedMonth, setSelectedMonth] = useState(initialData.selectedMonth);
+  const [allMonthlyData, setAllMonthlyData] = useState(initialData.monthlyData);
   const [showNewMonthDialog, setShowNewMonthDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
   const [newMonthYear, setNewMonthYear] = useState("115");
   const [newMonthMonth, setNewMonthMonth] = useState("7");
+
+  // 當資料變動時自動儲存到 localStorage
+  useEffect(() => {
+    saveToLocalStorage(allMonthlyData, selectedMonth, selectedCampus);
+  }, [allMonthlyData, selectedMonth, selectedCampus]);
 
   // 獲取可用月份列表
   const availableMonths = Object.keys(allMonthlyData).sort();
@@ -266,6 +332,16 @@ export function ExpenseManagementSystem() {
     setSelectedMonth(newMonth);
     setShowNewMonthDialog(false);
     alert(`已成功生成 ${newMonth} 的固定支出清單！`);
+  };
+
+  // 重置資料
+  const resetData = () => {
+    clearLocalStorage();
+    setAllMonthlyData(defaultMonthlyData);
+    setSelectedMonth("115年6月");
+    setSelectedCampus("soar");
+    setShowResetDialog(false);
+    alert("資料已重置為預設值！");
   };
 
   // 匯出本月資料為 CSV
@@ -360,6 +436,17 @@ export function ExpenseManagementSystem() {
               <p className="text-sm text-gray-500 mt-1">七校區・每月繳費追蹤系統</p>
             </div>
             <div className="flex items-center gap-4">
+              {/* 重置資料按鈕 */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowResetDialog(true)}
+                className="text-sm gap-2 text-gray-600 hover:text-red-600 hover:border-red-300"
+              >
+                <RotateCcw className="w-4 h-4" />
+                重置資料
+              </Button>
+
               {/* 生成新月份按鈕 */}
               <Button
                 variant="outline"
@@ -488,6 +575,39 @@ export function ExpenseManagementSystem() {
           />
         )}
       </div>
+
+      {/* 重置資料確認對話框 */}
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>重置資料</DialogTitle>
+            <DialogDescription>
+              確定要清除目前儲存資料並恢復預設資料嗎？
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-gray-700">
+              <p className="font-medium text-red-700 mb-2">⚠️ 警告</p>
+              <ul className="list-disc list-inside space-y-1 text-xs">
+                <li>此操作將清除所有已儲存的資料</li>
+                <li>包含所有月份的編輯紀錄</li>
+                <li>此操作無法復原</li>
+              </ul>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetDialog(false)}>
+              取消
+            </Button>
+            <Button
+              onClick={resetData}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              確認重置
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 生成新月份對話框 */}
       <Dialog open={showNewMonthDialog} onOpenChange={setShowNewMonthDialog}>
