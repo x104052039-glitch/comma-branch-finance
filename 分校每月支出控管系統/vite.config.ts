@@ -16,7 +16,8 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
-  base: '/comma-branch-finance/',
+  // 使用相對路徑，避免 GitHub Pages 找不到 CSS / JS
+  base: './',
 
   plugins: [
     figmaAssetResolver(),
