@@ -16,6 +16,8 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  // GitHub Pages 專案路徑
+  // 正式網址：https://x104052039-glitch.github.io/comma-branch-finance/
   base: '/comma-branch-finance/',
 
   plugins: [
@@ -30,5 +32,6 @@ export default defineConfig({
     },
   },
 
+  // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })
